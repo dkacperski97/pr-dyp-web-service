@@ -1,13 +1,23 @@
 import express from "express";
 import { ApolloServer, gql } from "apollo-server-express";
 import yeoman from "yeoman-environment";
-
+import mongodb from "mongodb";
+const { MongoClient } = mongodb;
 const env = yeoman.createEnv();
 env.lookup();
 
+const url = 'mongodb://root:example@localhost:27017';
+const client = new MongoClient(url);
+let db;
+client.connect(function(err) {
+    console.log(err || 'Connected successfully to server')
+    db = client.db('editor');
+    // client.close();
+});
+
 const typeDefs = gql`
     type Query {
-        hello: String
+        site(value: String): String
     }
     type Mutation {
         generate: String
@@ -16,47 +26,27 @@ const typeDefs = gql`
 
 const resolvers = {
     Query: {
-        hello: () => "Hello world!",
+        site: async (parent, args, context, info) => {
+            const siteCol = db.collection('site');
+            const site = await siteCol.findOne({ id: 'site' });
+            if (site) {
+                const updateDocument = {
+                    $set: {
+                        value: args.value,
+                    },
+                };
+                const result = await siteCol.updateOne(site, updateDocument);
+            } else {
+                const result = await siteCol.insertOne({ id: 'site', value: args.value });
+            }
+            return "";
+        },
     },
     Mutation: {
         generate: async (_, {}, { dataSources }) => {
-            const pages = [
-                {
-                    uniqueName: "Page 1",
-                    inputs: [],
-                    layout: [
-                        {
-                            id: "3872977d-ef84-4cec-9a6b-e79b0114e7b3",
-                            componentId: "main",
-                            config: {},
-                            children: ["09e48e1d-388a-40d3-8407-edfa21b3e479"],
-                        },
-                        {
-                            id: "09e48e1d-388a-40d3-8407-edfa21b3e479",
-                            componentId: "grid",
-                            config: {amount:3},
-                            children: [
-                                "3e80553c-5433-4b48-bb0a-cc333f1dd76d",
-                                null,
-                                "8a956590-c690-4b9f-a588-111bccd0612c",
-                            ],
-                        },
-                        {
-                            id: "8a956590-c690-4b9f-a588-111bccd0612c",
-                            componentId: "link",
-                            config: {name:'My link', url:'https://google.com/'},
-                            children: [],
-                        },
-                        {
-                            id: "3e80553c-5433-4b48-bb0a-cc333f1dd76d",
-                            componentId: "label",
-                            config: {name:'My label'},
-                            children: [],
-                        },
-                    ],
-                },
-            ];
-            await env.run("low-code-react", { pages: JSON.stringify(pages), output: "output" });
+            const siteCol = db.collection('site');
+            const site = await siteCol.findOne({ id: 'site' });
+            await env.run("low-code-react", { site: site.value, output: "output" });
             return;
         },
     },
