@@ -2,6 +2,9 @@ import express from "express";
 import { ApolloServer, gql } from "apollo-server-express";
 import yeoman from "yeoman-environment";
 import mongodb from "mongodb";
+import fs from 'fs';
+import { spawn } from 'child_process';
+let child;
 const { MongoClient } = mongodb;
 const env = yeoman.createEnv();
 env.lookup();
@@ -24,6 +27,25 @@ const typeDefs = gql`
     }
 `;
 
+const startApp = () => {
+    console.log("====== START REACT APP ==========");
+
+    child = spawn('node', ['./node_modules/react-scripts/scripts/start'], {
+        cwd: 'output',
+        env: { ...process.env, PORT: '3500' },
+        // detached: true
+    });
+    child.stdout.on('data', (data) => {
+        console.log(`stdout:\n${data}`);
+    });
+    child.on('error', (error) => {
+        console.error(`error: ${error.message}`);
+    });
+    child.on('close', (code) => {
+        console.log(`child process exited with code ${code}`);
+    });
+}
+
 const resolvers = {
     Query: {
         site: async (parent, args, context, info) => {
@@ -44,9 +66,24 @@ const resolvers = {
     },
     Mutation: {
         generate: async (_, {}, { dataSources }) => {
+            if (child) {
+                const exitCode = new Promise( (resolve, reject) => {
+                    child.on('close', resolve);
+                    child.on('exit', resolve);
+                    child.kill('SIGINT');
+                });
+                await exitCode;
+                // child.destroy();
+            }
             const siteCol = db.collection('site');
             const site = await siteCol.findOne({ id: 'site' });
+            try {
+                fs.rmdirSync("output/src", { recursive: true });
+            } catch (e) {
+                console.log(e)
+            }
             await env.run("low-code-react", { site: site.value, output: "output" });
+            startApp();
             return;
         },
     },
