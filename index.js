@@ -4,9 +4,10 @@ import yeoman from "yeoman-environment";
 import mongodb from "mongodb";
 import fs from 'fs';
 import { spawn } from 'child_process';
+import { Adapter } from './adapter';
 let child;
 const { MongoClient } = mongodb;
-const env = yeoman.createEnv();
+const env = yeoman.createEnv(undefined, undefined, new Adapter());
 env.lookup();
 
 const url = 'mongodb://root:example@localhost:27017';
@@ -77,13 +78,13 @@ const resolvers = {
             }
             const siteCol = db.collection('site');
             const site = await siteCol.findOne({ id: 'site' });
-            try {
-                fs.rmdirSync("output/src", { recursive: true });
-            } catch (e) {
-                console.log(e)
-            }
+            // try {
+            //     fs.rmdirSync("output/src", { recursive: true });
+            // } catch (e) {
+            //     console.log(e)
+            // }
             await env.run("low-code-react", { site: site.value, output: "output" });
-            startApp();
+            // startApp();
             return;
         },
     },
