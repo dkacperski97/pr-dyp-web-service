@@ -2,9 +2,12 @@ import express from "express";
 import { ApolloServer, gql } from "apollo-server-express";
 import yeoman from "yeoman-environment";
 import mongodb from "mongodb";
-import fs from 'fs';
-import { spawn } from 'child_process';
 import { Adapter } from './adapter';
+import * as builder from './image-builder';
+import { Volume } from 'memfs';
+import fs from 'fs';
+import * as wp from './webpack';
+
 let child;
 const { MongoClient } = mongodb;
 const env = yeoman.createEnv(undefined, undefined, new Adapter());
@@ -22,30 +25,12 @@ client.connect(function(err) {
 const typeDefs = gql`
     type Query {
         site(value: String): String
+        image(tag: String, port: Int): String
     }
     type Mutation {
         generate: String
     }
 `;
-
-const startApp = () => {
-    console.log("====== START REACT APP ==========");
-
-    child = spawn('node', ['./node_modules/react-scripts/scripts/start'], {
-        cwd: 'output',
-        env: { ...process.env, PORT: '3500' },
-        // detached: true
-    });
-    child.stdout.on('data', (data) => {
-        console.log(`stdout:\n${data}`);
-    });
-    child.on('error', (error) => {
-        console.error(`error: ${error.message}`);
-    });
-    child.on('close', (code) => {
-        console.log(`child process exited with code ${code}`);
-    });
-}
 
 const resolvers = {
     Query: {
@@ -64,6 +49,31 @@ const resolvers = {
             }
             return "";
         },
+        image: async (parent, args, context, info) => {
+            const vol = Volume.fromJSON({});
+            const image = builder.init(args);
+            await builder.getLayers(fs, image);
+            if (args.tag.indexOf("node") !== -1) {
+                await builder.addNodeModules(fs, image);
+                try {
+                    await builder.addFiles(fs, image, {'/home/node/app':"./output"}, { ignores: ["**/node_modules/**"]})
+                } catch(e) {
+                    console.log(e)
+                }
+            } else {
+                try {
+                    await wp.run();
+                    await builder.addFiles(fs, image, {'/usr/share/nginx/html':"./dist"})
+                    await builder.addFiles(fs, image, {'/etc/nginx/templates':"./templates"})
+                } catch(e) {
+                    console.log(e)
+                }
+            }
+            console.log('save')
+            const imageData = await builder.save(fs, image, args)
+            console.log(imageData.slice(0, 50), imageData.slice(-50))
+            return imageData;
+        }
     },
     Mutation: {
         generate: async (_, {}, { dataSources }) => {
@@ -84,11 +94,13 @@ const resolvers = {
             //     console.log(e)
             // }
             await env.run("low-code-react", { site: site.value, output: "output" });
-            // startApp();
             return;
         },
     },
 };
+
+// resolvers.Query.image(undefined, { tag: "nginx:1.20.1-alpine", port: 3456 })
+// resolvers.Query.image(undefined, { tag: "node:16-alpine", port: 3456 })
 
 const server = new ApolloServer({ typeDefs, resolvers });
 
@@ -98,3 +110,5 @@ server.applyMiddleware({ app });
 app.listen({ port: 4000 }, () =>
     console.log("Now browse to http://localhost:4000" + server.graphqlPath)
 );
+
+// wp.startServer();

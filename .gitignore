@@ -1,2 +1,9 @@
 node_modules
 output*
+tmp*
+test
+14
+dist
+wp
+cache/*
+!cache/.gitkeep
