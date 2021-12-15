@@ -58,7 +58,7 @@ export const init = (args) => {
     const image = new Image(args.tag, 'my-app:latest')
     if (args.tag.indexOf("node") !== -1) {
         image.WorkingDir = "/home/node/app"
-        image.Cmd = ["npm", "start"]
+        image.Cmd = ["npm", "run", "start2"]
     } else {
         // image.WorkingDir = "/home/node/app"
         image.Cmd = ["nginx", "-g", "daemon off;"]

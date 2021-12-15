@@ -7,8 +7,8 @@ import * as builder from './image-builder';
 import { Volume } from 'memfs';
 import fs from 'fs';
 import * as wp from './webpack';
+import * as lint from './lint';
 
-let child;
 const { MongoClient } = mongodb;
 const env = yeoman.createEnv(undefined, undefined, new Adapter());
 env.lookup();
@@ -24,30 +24,69 @@ client.connect(function(err) {
 
 const typeDefs = gql`
     type Query {
-        site(value: String): String
-        image(tag: String, port: Int): String
+        sites: [String]
+        firstSite: String
+        site(id: String): String
     }
     type Mutation {
-        generate: String
+        image(tag: String, port: Int): String
+        site(value: String): String
+        deleteSite(id: String): String
+        generate(id: String): String
     }
 `;
 
 const resolvers = {
     Query: {
+        sites: async (parent, args, context, info) => {
+            const siteCol = db.collection('site');
+            const sites = await siteCol.find({}).toArray();
+            console.log(sites)
+            return sites.map(s => s.id);
+        },
+        firstSite: async (parent, args, context, info) => {
+            const siteCol = db.collection('site');
+            const site = await siteCol.findOne({});
+            console.log(site.value)
+            return site.value;
+        },
         site: async (parent, args, context, info) => {
             const siteCol = db.collection('site');
-            const site = await siteCol.findOne({ id: 'site' });
+            const site = await siteCol.findOne({ id: args.id });
+            console.log(site.value)
+            return site.value;
+        }
+    },
+    Mutation: {
+        site: async (parent, args, context, info) => {
+            const value = JSON.parse(args.value);
+            const siteCol = db.collection('site');
+            const site = await siteCol.findOne({ id: value.id });
             if (site) {
                 const updateDocument = {
                     $set: {
                         value: args.value,
                     },
                 };
+                console.log("UPDATE SITE")
                 const result = await siteCol.updateOne(site, updateDocument);
             } else {
-                const result = await siteCol.insertOne({ id: 'site', value: args.value });
+                console.log("INSERT SITE")
+                const result = await siteCol.insertOne({ id: value.id, value: args.value });
             }
             return "";
+        },
+        deleteSite: async (parent, args, context, info) => {
+            const siteCol = db.collection('site');
+            await siteCol.deleteMany({ id: args.id });
+            return "";
+        },
+        generate: async (_, args, { dataSources }) => {
+            console.log("GENERATE")
+            const siteCol = db.collection('site');
+            const site = await siteCol.findOne({ id: args.id });
+            await env.run("low-code-react", { site: site.value, output: "output" });
+            return;
         },
         image: async (parent, args, context, info) => {
             const vol = Volume.fromJSON({});
@@ -75,37 +114,19 @@ const resolvers = {
             return imageData;
         }
     },
-    Mutation: {
-        generate: async (_, {}, { dataSources }) => {
-            if (child) {
-                const exitCode = new Promise( (resolve, reject) => {
-                    child.on('close', resolve);
-                    child.on('exit', resolve);
-                    child.kill('SIGINT');
-                });
-                await exitCode;
-                // child.destroy();
-            }
-            const siteCol = db.collection('site');
-            const site = await siteCol.findOne({ id: 'site' });
-            // try {
-            //     fs.rmdirSync("output/src", { recursive: true });
-            // } catch (e) {
-            //     console.log(e)
-            // }
-            await env.run("low-code-react", { site: site.value, output: "output" });
-            return;
-        },
-    },
 };
 
 // resolvers.Query.image(undefined, { tag: "nginx:1.20.1-alpine", port: 3456 })
 // resolvers.Query.image(undefined, { tag: "node:16-alpine", port: 3456 })
-
+// try {
+// lint.run()
+// } catch(e) {
+//     console.log(e)
+// }
 const server = new ApolloServer({ typeDefs, resolvers });
 
 const app = express();
-server.applyMiddleware({ app });
+server.applyMiddleware({ app, bodyParserConfig: {limit: '100mb'} });
 
 app.listen({ port: 4000 }, () =>
     console.log("Now browse to http://localhost:4000" + server.graphqlPath)
